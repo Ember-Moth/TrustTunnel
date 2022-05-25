@@ -25,7 +25,15 @@ pub struct Settings {
     pub(crate) listen_address: SocketAddr,
     /// The TLS host info for traffic tunneling
     pub(crate) tunnel_tls_host_info: TlsHostInfo,
-    /// The TLS host info of service messenger
+    /// The TLS host info for HTTPS pinging.
+    /// With this one set up the endpoint will respond with `200 OK` to HTTPS `GET` requests
+    /// to the specified domain.
+    /// The host name MUST differ from the tunneling host and service messanger ones.
+    pub(crate) ping_tls_host_info: Option<TlsHostInfo>,
+    /// The TLS host info of service messenger.
+    /// With this one set up the endpoint will accept TLS connections to the specified host name
+    /// and todo...
+    /// The host name MUST differ from the tunneling host and HTTPS pinging ones.
     pub(crate) service_messenger_tls_host_info: Option<TlsHostInfo>,
     /// IPv6 availability
     #[serde(default = "Settings::default_ipv6_available")]
@@ -281,6 +289,8 @@ pub enum BuilderError {
     ListenAddress(String),
     /// Invalid [`Settings.tunnel_tls_host_info`]
     TunnelTlsHostInfo(String),
+    /// Invalid [`Settings.ping_tls_host_info`]
+    PingTlsHostInfo(String),
     /// Invalid [`Settings.service_messenger_tls_host_info`]
     ServiceMessengerTlsHostInfo(String),
     /// [`Settings.listen_protocols`] are not set
@@ -340,6 +350,7 @@ impl Default for Settings {
             threads_number: 0,
             listen_address: SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
             tunnel_tls_host_info: Default::default(),
+            ping_tls_host_info: None,
             service_messenger_tls_host_info: None,
             ipv6_available: false,
             tls_handshake_timeout: Default::default(),
@@ -517,6 +528,7 @@ impl SettingsBuilder {
                 threads_number: Settings::default_threads_number(),
                 listen_address: Settings::default_listen_address(),
                 tunnel_tls_host_info: Default::default(),
+                ping_tls_host_info: None,
                 service_messenger_tls_host_info: None,
                 ipv6_available: Settings::default_ipv6_available(),
                 tls_handshake_timeout: Settings::default_tls_handshake_timeout(),
@@ -548,7 +560,30 @@ impl SettingsBuilder {
         validate_file_path(&self.settings.tunnel_tls_host_info.private_key_path)
             .map_err(|e| BuilderError::TunnelTlsHostInfo(format!("Invalid key path: {}", e)))?;
 
+        if let Some(x) = &self.settings.ping_tls_host_info {
+            if x.hostname == self.settings.tunnel_tls_host_info.hostname {
+                return Err(BuilderError::PingTlsHostInfo("Host name equals to tunneling one".into()));
+            }
+            if self.settings.service_messenger_tls_host_info.as_ref()
+                .map_or(false, |i| x.hostname == i.hostname)
+            {
+                return Err(BuilderError::PingTlsHostInfo("Host name equals to service messenger one".into()));
+            }
+            validate_file_path(&x.cert_chain_path)
+                .map_err(|e| BuilderError::PingTlsHostInfo(format!("Invalid cert chain path: {}", e)))?;
+            validate_file_path(&x.private_key_path)
+                .map_err(|e| BuilderError::PingTlsHostInfo(format!("Invalid key path: {}", e)))?;
+        }
+
         if let Some(x) = &self.settings.service_messenger_tls_host_info {
+            if x.hostname == self.settings.tunnel_tls_host_info.hostname {
+                return Err(BuilderError::ServiceMessengerTlsHostInfo("Host name equals to tunneling one".into()));
+            }
+            if self.settings.ping_tls_host_info.as_ref()
+                .map_or(false, |i| x.hostname == i.hostname)
+            {
+                return Err(BuilderError::ServiceMessengerTlsHostInfo("Host name equals to HTTPS pinging one".into()));
+            }
             validate_file_path(&x.cert_chain_path)
                 .map_err(|e| BuilderError::ServiceMessengerTlsHostInfo(format!("Invalid cert chain path: {}", e)))?;
             validate_file_path(&x.private_key_path)
@@ -587,7 +622,19 @@ impl SettingsBuilder {
         self
     }
 
-    /// Set the TLS host info of service messenger
+    /// Set the TLS host info for HTTPS pinging.
+    /// With this one set up the endpoint will respond with `200 OK` to HTTPS `GET` requests
+    /// to the specified domain.
+    /// The host name MUST differ from the tunneling host and service messanger ones.
+    pub fn ping_tls_host_info(mut self, info: TlsHostInfo) -> Self {
+        self.settings.ping_tls_host_info = Some(info);
+        self
+    }
+
+    /// Set the TLS host info of service messenger.
+    /// With this one set up the endpoint will accept TLS connections to the specified host name
+    /// and todo...
+    /// The host name MUST differ from the tunneling host and HTTPS pinging ones.
     pub fn service_messenger_tls_host_info(mut self, info: TlsHostInfo) -> Self {
         self.settings.service_messenger_tls_host_info = Some(info);
         self

@@ -282,6 +282,12 @@ impl QuicMultiplexer {
         // For now, SNI-based authentication is not supported for QUIC
         match sni {
             Some(x) if x == settings.tunnel_tls_host_info.hostname => Ok(ServerNameCheckStatus::Ok),
+            Some(x) if settings.ping_tls_host_info.as_ref().map_or(
+                false, |info| info.hostname == x
+            ) =>
+                Ok(ServerNameCheckStatus::RetryAs(
+                    settings.ping_tls_host_info.as_ref().unwrap(),
+                )),
             Some(x) if settings.service_messenger_tls_host_info.as_ref().map_or(
                 false, |info| info.hostname == x
             ) =>
@@ -544,6 +550,14 @@ impl QuicMultiplexer {
 impl QuicSocket {
     pub fn id(&self) -> log_utils::IdChain<u64> {
         self.id.clone()
+    }
+
+    pub fn server_name(&self) -> Option<String> {
+        self.quic_conn.lock().unwrap().server_name().map(String::from)
+    }
+
+    pub fn alpn(&self) -> Vec<u8> {
+        self.quic_conn.lock().unwrap().application_proto().into()
     }
 
     pub fn send_response(&self, stream_id: u64, response: ResponseHeaders, fin: bool) -> io::Result<()> {

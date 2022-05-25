@@ -4,22 +4,30 @@ use crate::net_utils;
 use crate::settings::{ListenProtocolSettings, Settings};
 
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub(crate) enum TunnelProtocol {
     Http1,
     Http2,
     Http3,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
+pub(crate) enum PingProtocol {
+    Http1,
+    Http2,
+    Http3,
+}
+
+#[derive(Debug, PartialEq)]
 pub(crate) enum ServiceMessengerProtocol {
     Http1,
     Http3,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) enum DownstreamProtocol {
     Tunnel(TunnelProtocol),
+    Ping(PingProtocol),
     ServiceMessenger(ServiceMessengerProtocol),
 }
 
@@ -29,6 +37,9 @@ impl DownstreamProtocol {
             DownstreamProtocol::Tunnel(TunnelProtocol::Http1) => net_utils::HTTP1_ALPN,
             DownstreamProtocol::Tunnel(TunnelProtocol::Http2) => net_utils::HTTP2_ALPN,
             DownstreamProtocol::Tunnel(TunnelProtocol::Http3) => net_utils::HTTP3_ALPN,
+            DownstreamProtocol::Ping(PingProtocol::Http1) => net_utils::HTTP1_ALPN,
+            DownstreamProtocol::Ping(PingProtocol::Http2) => net_utils::HTTP2_ALPN,
+            DownstreamProtocol::Ping(PingProtocol::Http3) => net_utils::HTTP3_ALPN,
             DownstreamProtocol::ServiceMessenger(ServiceMessengerProtocol::Http1) => net_utils::HTTP1_ALPN,
             DownstreamProtocol::ServiceMessenger(ServiceMessengerProtocol::Http3) => net_utils::HTTP3_ALPN,
         }
@@ -52,6 +63,15 @@ pub(crate) fn select(settings: &Settings, alpn: Option<&str>, sni: &str) -> io::
             net_utils::HTTP3_ALPN => Ok(DownstreamProtocol::ServiceMessenger(ServiceMessengerProtocol::Http3)),
             _ => Err(io::Error::new(
                 ErrorKind::Other, format!("Unexpected ALPN on service messenger connection {:?}", alpn)
+            )),
+        }
+    } else if Some(sni) == settings.ping_tls_host_info.as_ref().map(|i| i.hostname.as_str()) {
+        match alpn.unwrap_or_default() {
+            net_utils::HTTP1_ALPN => Ok(DownstreamProtocol::Ping(PingProtocol::Http1)),
+            net_utils::HTTP2_ALPN => Ok(DownstreamProtocol::Ping(PingProtocol::Http2)),
+            net_utils::HTTP3_ALPN => Ok(DownstreamProtocol::Ping(PingProtocol::Http3)),
+            _ => Err(io::Error::new(
+                ErrorKind::Other, format!("Unexpected ALPN on pinging connection {:?}", alpn)
             )),
         }
     } else {
@@ -82,6 +102,6 @@ pub(crate) fn select(settings: &Settings, alpn: Option<&str>, sni: &str) -> io::
                 ))
             }
         }
-        DownstreamProtocol::ServiceMessenger(x) => Ok(DownstreamProtocol::ServiceMessenger(x)),
+        x => Ok(x),
     }
 }

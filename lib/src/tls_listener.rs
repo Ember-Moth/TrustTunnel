@@ -52,16 +52,21 @@ impl TlsAcceptor {
     pub async fn accept(self, alpn: Vec<u8>, log_id: &log_utils::IdChain<u64>) -> io::Result<TlsStream<TcpStream>> {
         let settings = &self.core_settings;
         let tunnel_tls_info = &settings.tunnel_tls_host_info;
-        let sm_tls_into = settings.service_messenger_tls_host_info.as_ref();
+        let ping_tls_info = settings.ping_tls_host_info.as_ref();
+        let sm_tls_info = settings.service_messenger_tls_host_info.as_ref();
 
         let (cert_file, key_file) = match self.inner.client_hello().server_name() {
             Some(x) if x == tunnel_tls_info.hostname => (
                 &tunnel_tls_info.cert_chain_path,
                 &tunnel_tls_info.private_key_path,
             ),
-            Some(x) if Some(x) == sm_tls_into.map(|info| info.hostname.as_str()) => (
-                &sm_tls_into.unwrap().cert_chain_path,
-                &sm_tls_into.unwrap().private_key_path,
+            Some(x) if Some(x) == ping_tls_info.map(|info| info.hostname.as_str()) => (
+                &ping_tls_info.unwrap().cert_chain_path,
+                &ping_tls_info.unwrap().private_key_path,
+            ),
+            Some(x) if Some(x) == sm_tls_info.map(|info| info.hostname.as_str()) => (
+                &sm_tls_info.unwrap().cert_chain_path,
+                &sm_tls_info.unwrap().private_key_path,
             ),
             x => match x.and_then(|x| utils::scan_sni_authentication(x, &tunnel_tls_info.hostname)) {
                 None => return Err(io::Error::new(
