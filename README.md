@@ -287,6 +287,9 @@ cat /opt/trusttunnel_client/trusttunnel_client.toml
 >
 > See the [TrustTunnel CLI Client README](https://github.com/TrustTunnel/TrustTunnelClient/blob/master/trusttunnel/README.md#configuration-reference) for all available options.
 
+> [!NOTE]
+> After editing the config, restart the client for the changes to take effect.
+
 #### Running client
 
 To run the client execute the following command:
