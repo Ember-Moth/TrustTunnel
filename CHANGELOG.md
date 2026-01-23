@@ -1,5 +1,8 @@
 # CHANGELOG
 
+- Fixed an issue where allow_private_network_connections set to false could be bypassed
+when a numeric address was used.
+
 ## 0.9.87
 
 - Added automatic Let's Encrypt certificate generation to `setup_wizard`

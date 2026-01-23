@@ -66,7 +66,19 @@ impl TcpConnector for TcpForwarder {
         meta: forwarder::TcpConnectionMeta,
     ) -> Result<(Box<dyn pipe::Source>, Box<dyn pipe::Sink>), tunnel::ConnectionError> {
         let peer = match meta.destination {
-            TcpDestination::Address(peer) => peer,
+            TcpDestination::Address(peer) => {
+                let peer_ip = peer.ip();
+                if !self.context.settings.allow_private_network_connections
+                    && !net_utils::is_global_ip(&peer_ip)
+                {
+                    if peer_ip.is_loopback() {
+                        return Err(tunnel::ConnectionError::DnsLoopback);
+                    }
+                    return Err(tunnel::ConnectionError::DnsNonroutable);
+                }
+
+                peer
+            }
             TcpDestination::HostName(peer) => {
                 log_id!(trace, id, "Resolving peer: {:?}", peer);
 
@@ -237,4 +249,63 @@ fn io_to_connection_error(error: io::Error) -> tunnel::ConnectionError {
     }
 
     tunnel::ConnectionError::Io(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    fn make_test_context_disallow_private_network() -> Arc<core::Context> {
+        let mut ctx = core::Context::default();
+        Arc::get_mut(&mut ctx.settings)
+            .unwrap()
+            .allow_private_network_connections = false;
+        Arc::new(ctx)
+    }
+
+    #[tokio::test]
+    async fn test_connect_denies_loopback_address_when_private_network_disallowed() {
+        let context = make_test_context_disallow_private_network();
+        let connector: Box<dyn TcpConnector> = Box::new(TcpForwarder::new(context));
+
+        let meta = forwarder::TcpConnectionMeta {
+            client_address: IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1)),
+            destination: TcpDestination::Address(SocketAddr::from((Ipv4Addr::LOCALHOST, 22))),
+            auth: None,
+            tls_domain: String::new(),
+            user_agent: None,
+        };
+
+        let err = match connector.connect(log_utils::IdChain::empty(), meta).await {
+            Ok(_) => panic!("Expected connection to be denied"),
+            Err(e) => e,
+        };
+
+        assert!(matches!(err, tunnel::ConnectionError::DnsLoopback));
+    }
+
+    #[tokio::test]
+    async fn test_connect_denies_private_address_when_private_network_disallowed() {
+        let context = make_test_context_disallow_private_network();
+        let connector: Box<dyn TcpConnector> = Box::new(TcpForwarder::new(context));
+
+        let meta = forwarder::TcpConnectionMeta {
+            client_address: IpAddr::V4(Ipv4Addr::new(203, 0, 113, 1)),
+            destination: TcpDestination::Address(SocketAddr::from((
+                Ipv4Addr::new(192, 168, 0, 1),
+                80,
+            ))),
+            auth: None,
+            tls_domain: String::new(),
+            user_agent: None,
+        };
+
+        let err = match connector.connect(log_utils::IdChain::empty(), meta).await {
+            Ok(_) => panic!("Expected connection to be denied"),
+            Err(e) => e,
+        };
+
+        assert!(matches!(err, tunnel::ConnectionError::DnsNonroutable));
+    }
 }
